@@ -12,7 +12,7 @@
 #                                                               #
 #################################################################
 
-module "example_root_module" {
-  source          = "../"
-  greeting_prefix = "Example Greeting"
-}
+output "root_module_hello_output" {
+  description = "The hello_output value from the root module."
+  value       = module.example_root_module.hello_output
+} 

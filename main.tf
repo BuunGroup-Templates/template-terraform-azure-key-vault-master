@@ -15,7 +15,7 @@
 resource "null_resource" "hello_world" {
   triggers = {
     # Trigger recreation when the prefix changes
-    prefix = var.greeting_prefix 
+    prefix = var.greeting_prefix
   }
 
   provisioner "local-exec" {

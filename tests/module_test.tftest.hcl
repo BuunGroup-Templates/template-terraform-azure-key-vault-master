@@ -44,7 +44,7 @@ run "module_main_test" {
     condition     = can(module.example_root_module.hello_output) && module.example_root_module.hello_output != null
     error_message = "Module output 'hello_output' should exist and not be null"
   }
-  
+
   assert {
     # Check the value of the output
     condition     = length(module.example_root_module.hello_output) > 0
