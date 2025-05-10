@@ -1,0 +1,57 @@
+name: Generate Terraform Docs
+
+on:
+  workflow_dispatch:
+    # Optional: Define inputs for manual runs if needed
+    # inputs:
+    #   branch:
+    #     description: 'Branch to generate docs for'     
+    #     required: true
+    #     default: 'main'
+
+  workflow_run:
+    workflows: ["Terraform Lint, Validate, and Test"]
+    types:
+      - completed
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  docs:
+    name: Generate Terraform Docs
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    steps:
+
+      #####################
+      # GIT CHECKOUT TASK #
+      #####################
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: main 
+          fetch-depth: 0
+
+      #################
+      # GIT PULL TASK #
+      #################
+
+      - name: Pull latest changes from main
+        run: git pull origin main --ff-only 
+
+      #######################
+      # TERRAFORM DOCS TASK #
+      #######################
+
+      - name: Generate terraform docs
+        uses: terraform-docs/gh-actions@v1
+        with:
+          working-dir: .
+          output-file: README.md
+          output-method: inject
+          git-push: "true"
+          git-commit-message: "docs: Auto-generate Terraform documentation [skip ci]" 

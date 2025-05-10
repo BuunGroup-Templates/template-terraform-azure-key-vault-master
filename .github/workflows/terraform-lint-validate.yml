@@ -1,0 +1,96 @@
+name: Terraform Lint, Validate, and Test
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+  workflow_dispatch:
+    # Optional: Define inputs for manual runs if needed
+    # inputs:
+    #   logLevel:
+    #     description: 'Log level'     
+    #     required: true
+    #     default: 'warning' 
+
+permissions:
+  contents: write
+
+jobs:
+  lint-validate-test:
+    name: Lint, Validate, and Test Terraform
+    if: |-
+      github.event_name != 'push' || 
+      (github.actor != 'github-actions[bot]' && !contains(github.event.head_commit.message, '[skip ci]'))
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      ########################
+      # TERRAFORM SETUP TASK #
+      ########################
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: latest 
+
+      #######################
+      # TERRAFORM INIT TASK #
+      #######################
+
+      - name: Terraform Init
+        id: init
+        run: terraform init -backend=false
+        continue-on-error: true 
+
+      ######################
+      # TERRAFORM VALIDATE #
+      ######################
+
+      - name: Terraform Validate
+        id: validate
+        if: steps.init.outcome == 'success'
+        run: terraform validate
+
+      - name: Copy examples to tests directory
+        if: steps.init.outcome == 'success'
+        run: |
+          mkdir -p tests/examples
+          cp -r examples/. tests/examples
+        shell: bash
+
+      #######################
+      # TERRAFORM TEST TASK #
+      #######################
+
+      - name: Terraform Test
+        id: test
+        if: steps.init.outcome == 'success'
+        run: terraform test
+
+      #########################
+      # TERRAFORM FORMAT TASK #
+      #########################
+
+      - name: Terraform Format Check
+        id: fmt
+        if: steps.init.outcome == 'success' 
+        run: terraform fmt -check -recursive
+        continue-on-error: true
+
+      - name: Commit formatting changes
+        if: steps.fmt.outcome == 'failure' && github.event_name == 'push' 
+        run: |
+          terraform fmt -recursive # Apply formatting
+          git config --local user.email "automation@buungroup.com"
+          git config --local user.name "Buun Group Automation [Bot]"
+          git add .
+          # Use a commit message that includes [skip ci]
+          git commit -m "style: Auto-format Terraform code [skip ci]"
+          git push
+        shell: bash 

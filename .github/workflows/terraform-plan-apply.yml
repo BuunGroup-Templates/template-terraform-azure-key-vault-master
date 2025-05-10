@@ -1,0 +1,276 @@
+name: Terraform Plan and Apply
+
+on:
+  workflow_run:
+    workflows: ["Generate Terraform Docs"]
+    types:
+      - completed
+    branches:
+      - main
+
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment (e.g., dev, staging, prod)'
+        required: true
+        default: 'dev'
+
+      auto_apply:
+        description: 'Automatically apply the plan after successful planning?'
+        type: boolean
+        default: false
+
+      ref:
+        description: 'Git ref (branch, tag, or SHA) to checkout'
+        required: false
+        default: 'main'
+
+      runner_label:
+        description: 'Runner label(s) to use (e.g., ubuntu-latest, self-hosted)'
+        required: false
+        type: string
+        default: 'ubuntu-latest'
+
+permissions:
+  contents: read
+  id-token: write
+  pull-requests: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  plan:
+    name: Terraform Plan (${{ github.event_name == 'workflow_dispatch' && github.event.inputs.environment || 'main' }})
+    if: |
+      (github.event_name == 'workflow_dispatch') ||
+      (github.event.workflow_run.conclusion == 'success' && !contains(github.event.workflow_run.head_commit.message, '[skip ci]'))
+    runs-on: ${{ github.event.inputs.runner_label || 'ubuntu-latest' }}
+    environment: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.environment || 'production' }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.event.inputs.ref || github.ref }}
+
+      # === Cloud Authentication (Choose ONE and uncomment/configure) ===
+      # Option 1: AWS OIDC (Recommended)
+      # - name: Configure AWS Credentials
+      #   uses: aws-actions/configure-aws-credentials@v4
+      #   with:
+      #     role-to-assume: arn:aws:iam::ACCOUNT_ID:role/YOUR_GITHUB_ACTIONS_ROLE # Replace with your OIDC Role ARN
+      #     aws-region: YOUR_AWS_REGION # Replace with your target region
+
+      # Option 2: GCP OIDC (Recommended)
+      # - id: 'auth'
+      #   name: 'Authenticate to Google Cloud'
+      #   uses: 'google-github-actions/auth@v2'
+      #   with:
+      #     workload_identity_provider: 'projects/YOUR_PROJECT_ID/locations/global/workloadIdentityPools/YOUR_POOL_ID/providers/YOUR_PROVIDER_ID' # Replace with your WIF details
+      #     service_account: 'your-service-account@your-project-id.iam.gserviceaccount.com' # Replace with your Service Account
+
+      # Option 3: Azure OIDC (Recommended)
+      # - name: Azure Login
+      #   uses: azure/login@v1
+      #   with:
+      #     client-id: ${{ secrets.AZURE_CLIENT_ID }} 
+      #     tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+      #     subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      # Option 4: Cloud Secrets (Less Secure)
+      # env:
+      #   AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      #   AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      #   ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      #   ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+      #   ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      #   ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      #   GOOGLE_CREDENTIALS: ${{ secrets.GCP_SA_KEY }}
+      # === End Cloud Authentication ===
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: latest
+          # Optional: Setup Terraform Cloud/Enterprise integration
+          # cli_config_credentials_token: ${{ secrets.TF_API_TOKEN }}
+
+      - name: Terraform Init
+        id: init
+        run: terraform init -backend=false
+        # Add backend config if needed, e.g., via secrets or direct args:
+        # env:
+        #   TF_BACKEND_... : ...
+        # run: terraform init -backend-config="key=path/to/state/${{ github.event.inputs.environment || 'main' }}.tfstate" ...
+
+      - name: Terraform Plan
+        id: plan
+        run: terraform plan -no-color -out=tfplan
+        # Optional: Pass tfvars based on environment
+        # run: terraform plan -no-color -out=tfplan -var-file="config/${{ github.event.inputs.environment || 'main' }}.tfvars"
+
+      # NEW: Convert binary plan to JSON format
+      - name: Convert Plan to JSON
+        id: plan_json
+        run: terraform show -no-color -json tfplan > tfplan.json
+
+      - name: Upload Plan Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tfplan-${{ github.run_id }} # Keep artifact name consistent for now
+          path: tfplan.json # <-- Upload the JSON file
+
+      - name: Create Plan Output for PR Comment
+        id: plan_output
+        if: github.event_name == 'pull_request'
+        run: |
+          echo "plan_output<<EOF" >> $GITHUB_OUTPUT
+          echo '```terraform' >> $GITHUB_OUTPUT
+          # Use the binary 'tfplan' for the readable 'terraform show' output for the comment
+          terraform show -no-color tfplan >> $GITHUB_OUTPUT
+          echo '```' >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+        shell: bash
+
+      - name: Post Plan to PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const output = `${{ steps.plan_output.outputs.plan_output }}`;
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: output
+            });
+
+  apply:
+    name: Terraform Apply (${{ github.event.inputs.environment || 'main' }})
+    needs: plan
+    if: |
+      success() && (
+        (github.event_name == 'workflow_run' && github.ref == 'refs/heads/main') || 
+        (github.event_name == 'workflow_dispatch' && github.event.inputs.auto_apply == 'true')
+      )
+    runs-on: ${{ github.event.inputs.runner_label || 'ubuntu-latest' }}
+    environment: ${{ github.event.inputs.environment || 'production' }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.event.inputs.ref || github.ref }}
+
+      # === Cloud Authentication (Repeat from Plan job, ensure consistency) ===
+      # Option 1: AWS OIDC (Recommended)
+      # - name: Configure AWS Credentials
+      #   uses: aws-actions/configure-aws-credentials@v4
+      #   with:
+      #     role-to-assume: arn:aws:iam::ACCOUNT_ID:role/YOUR_GITHUB_ACTIONS_ROLE
+      #     aws-region: YOUR_AWS_REGION
+
+      # ... other auth options ...
+      # === End Cloud Authentication ===
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: latest
+          # Optional: Setup Terraform Cloud/Enterprise integration
+          # cli_config_credentials_token: ${{ secrets.TF_API_TOKEN }}
+
+      - name: Terraform Init
+        id: init
+        run: terraform init -backend=false
+
+      - name: Terraform Apply
+        id: apply
+        run: terraform apply -auto-approve
+
+      # --- Determine and Upload Environment Name ---
+      - name: Determine Environment Name
+        id: determine_env
+        run: |
+          ENV_NAME="${{ github.event.inputs.environment || github.ref_name }}" # Use input if dispatch, otherwise branch name
+          # Sanitize potentially unsafe characters like '/' from branch names if needed
+          # ENV_NAME=$(echo "$ENV_NAME" | sed 's/[^a-zA-Z0-9_.-]/-/g') 
+          echo "Determined environment: $ENV_NAME"
+          echo "environment_name=$ENV_NAME" >> $GITHUB_OUTPUT
+          echo "$ENV_NAME" > environment.txt
+        shell: bash
+
+      - name: Upload Environment Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: environment-${{ github.run_id }}
+          path: environment.txt
+      # --- End Environment Upload ---
+
+      # --- Encrypt and Upload State File ---
+      - name: Check for State File
+        id: check_state
+        run: |
+          if [ -f "terraform.tfstate" ]; then
+            echo "State file found."
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "State file terraform.tfstate not found. Skipping encryption and upload."
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+        shell: bash
+
+      - name: Setup Node.js for Encryption
+        if: steps.check_state.outputs.exists == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Encrypt State File using Node.js script
+        if: steps.check_state.outputs.exists == 'true'
+        id: encrypt_state
+        env:
+          # Pass the PUBLIC key from secrets to the environment
+          RSA_PUBLIC_KEY_PEM: ${{ secrets.RSA_PUBLIC_KEY }}
+        run: |
+          if [ -z "$RSA_PUBLIC_KEY_PEM" ]; then
+            echo "::error::RSA_PUBLIC_KEY secret is not set. Cannot encrypt state file."
+            exit 1
+          fi
+          INPUT_FILE="terraform.tfstate"
+          OUTPUT_FILE="tfstate-encrypted-${{ github.run_id }}.enc"
+          SCRIPT_PATH="./scripts/encrypt-state.js" # Assuming script is checked into repo
+
+          if [ ! -f "$SCRIPT_PATH" ]; then
+            echo "::error::Encryption script not found at $SCRIPT_PATH"
+            exit 1
+          fi
+
+          # Make script executable (needed on some runners)
+          chmod +x "$SCRIPT_PATH"
+
+          echo "Running encryption script..."
+          # Pass public key as a single string argument, ensure quoting handles newlines
+          node "$SCRIPT_PATH" "$INPUT_FILE" "$RSA_PUBLIC_KEY_PEM" "$OUTPUT_FILE"
+
+          # Check exit code of the script
+          if [ $? -ne 0 ]; then
+            echo "::error::Node.js encryption script failed."
+            exit 1
+          fi
+
+          echo "Node.js encryption script completed successfully."
+          # Clean up original state file
+          rm "$INPUT_FILE"
+        shell: bash
+
+      - name: Upload Encrypted State Artifact
+        if: steps.check_state.outputs.exists == 'true' && steps.encrypt_state.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: tfstate-encrypted-${{ github.run_id }} # Artifact name matches the file
+          path: tfstate-encrypted-${{ github.run_id }}.enc 
