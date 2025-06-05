@@ -12,7 +12,25 @@
 #                                                               #
 #################################################################
 
-output "root_module_hello_output" {
-  description = "The hello_output value from the root module."
-  value       = module.example_root_module.hello_output
+module "keyvault_policy" {
+  source                  = "../.."
+  resource_name           = "policyvault"
+  location                = "australiaeast"
+  create_resource_group   = true
+  resource_group_name     = "example-rg"
+  advanced_options = {
+    access_policies = [
+      {
+        object_id           = "00000000-0000-0000-0000-000000000000"
+        key_permissions     = ["Get", "List", "Create"]
+        secret_permissions  = ["Get", "Set", "List"]
+        certificate_permissions = ["Get", "List"]
+        storage_permissions = ["Get"]
+      }
+    ]
+    sku_name = "standard"
+  }
+  tags = {
+    environment = "dev"
+  }
 } 

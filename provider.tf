@@ -13,11 +13,23 @@
 #################################################################
 
 terraform {
-  required_version = ">= 1.0"
+  required_version = ">= 1.11.4"
   required_providers {
     azurerm = {
       source  = "hashicorp/azurerm"
-      version = "~> 3.0"
+      version = "~> 4.28"
+    }
+  }
+}
+
+provider "azurerm" {
+  features {
+    key_vault {
+      purge_soft_delete_on_destroy    = false
+      recover_soft_deleted_key_vaults = true
+    }
+    resource_group {
+      prevent_deletion_if_contains_resources = true
     }
   }
 } 

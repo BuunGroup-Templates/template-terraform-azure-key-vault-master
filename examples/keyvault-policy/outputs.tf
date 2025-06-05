@@ -12,7 +12,13 @@
 #                                                               #
 #################################################################
 
-module "example_root_module" {
-  source          = "../"
-  greeting_prefix = "Example Greeting"
+output "full_output_object_sensitive" {
+  description = "Sensitive values from the keyvault_policy module."
+  value       = module.keyvault_policy.full_output_object_sensitive
+  sensitive   = true
 }
+
+output "keyvault_policy_name" {
+  description = "The Key Vault resource name."
+  value       = module.keyvault_policy.name
+} 

@@ -1,0 +1,24 @@
+#################################################################
+#     ____  __  ____  ___   __   __________  ____  __  ______   #
+#    / __ )/ / / / / / / | / /  / ____/ __ \/ __ \/ / / / __ \  #
+#   / __  / / / / / / /  |/ /  / / __/ /_/ / / / / / / / /_/ /  #
+#  / /_/ / /_/ / /_/ / /|  /  / /_/ / _, _/ /_/ / /_/ / ____/   #
+# /_____/\____/\____/_/ |_/   \____/_/ |_|\____/\____/_/        #
+#                                                               #
+#                                                               #
+# Buun Group Pty Ltd.                                           #
+# Copyright 2025 Buun Group Pty Ltd. All rights reserved.       #
+# https://buungroup.com                                         #
+#                                                               #
+#################################################################
+
+variable "resource_group_name" {
+  description = "The name of the resource group."
+  type        = string
+}
+
+variable "location" {
+  description = "Azure region for the resource."
+  type        = string
+  default     = "australiaeast"
+} 

@@ -12,13 +12,24 @@
 #                                                               #
 #################################################################
 
-variable "greeting_prefix" {
-  description = "A prefix string to use in the hello world message."
-  type        = string
-  default     = "Hello"
+terraform {
+  required_version = ">= 1.11.4"
+  required_providers {
+    azurerm = {
+      source  = "hashicorp/azurerm"
+      version = "~> 4.28"
+    }
+  }
+}
 
-  validation {
-    condition     = length(var.greeting_prefix) > 0
-    error_message = "The greeting_prefix must not be empty."
+provider "azurerm" {
+  features {
+    key_vault {
+      purge_soft_delete_on_destroy    = false
+      recover_soft_deleted_key_vaults = true
+    }
+    resource_group {
+      prevent_deletion_if_contains_resources = true
+    }
   }
 } 
